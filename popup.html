@@ -1,11 +1,42 @@
 <!DOCTYPE html>
 <html>
+
 <head>
   <title>Save Old Version</title>
-  <script src="popup.js"></script>
-</head>
-<body>
-  <button id="saveButton">Save Old Version</button>
-</body>
-</html>
+  <style>
+    body {
+      width: 300px;
+      text-align: center;
+    }
 
+    button {
+      margin: 10px;
+    }
+
+    #versionsList {
+      list-style-type: none;
+      padding: 0;
+    }
+
+    #versionsList li {
+      margin: 5px 0;
+    }
+
+    #contentDisplay {
+      margin-top: 20px;
+      white-space: pre-wrap;
+      text-align: left;
+    }
+  </style>
+</head>
+
+<body>
+  <h2>Save Old Version</h2>
+  <button id="saveButton">Save Old Version</button>
+  <h3>Saved Versions</h3>
+  <ul id="versionsList"></ul>
+  <div id="contentDisplay"></div>
+  <script src="popup.js"></script>
+</body>
+
+</html>
