@@ -12,10 +12,13 @@ function saveOldVersion() {
     fetch(currentUrl)
       .then(response => response.text())
       .then(data => {
-        // Save URL and content to storage
+        // Sanitize HTML tags from the content
+        var sanitizedContent = sanitizeHtml(data);
+
+        // Save URL and sanitized content to storage
         var savedVersion = {
           url: currentUrl,
-          content: data
+          content: sanitizedContent
         };
 
         // Retrieve existing saved versions from storage
@@ -33,6 +36,11 @@ function saveOldVersion() {
         console.error('Error fetching data:', error);
       });
   });
+}
+
+// Function to sanitize HTML tags
+function sanitizeHtml(html) {
+  return html.replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 function displaySavedVersions() {
@@ -60,13 +68,58 @@ function displaySavedVersions() {
 }
 
 function openSavedVersion(index) {
-  // Retrieve saved versions from storage and open the saved content in a new tab
   chrome.storage.local.get('savedVersions', function (result) {
     var versions = result.savedVersions || [];
     if (versions.length > index) {
       var savedVersion = versions[index];
-      // Create a new tab with formatted text content
-      chrome.tabs.create({ url: 'data:text/plain;charset=utf-8,' + encodeURIComponent(savedVersion.content) });
+      var content = savedVersion.content;
+
+      // Highlighting API keys and applying basic syntax highlighting
+      content = highlightStrings(content);
+      content = highlightAPIKeys(content);
+
+      // Create a new tab with beautified content
+      chrome.tabs.create({
+        url: 'data:text/html,' + encodeURIComponent(`
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>Saved Version</title>
+            <style>
+              body { background-color: #222; color: white; font-family: 'Courier New', monospace; }
+              pre { padding: 20px; white-space: pre-wrap; }
+              .api-key { background-color: yellow; }
+              .string { color: #6a90e8; }
+            </style>
+          </head>
+          <body>
+            <pre>${content}</pre>
+          </body>
+          </html>
+        `)
+      });
     }
   });
+}
+
+function highlightStrings(content) {
+  // Highlighting strings in JavaScript-like content
+  return content.replace(/(["'])(?:(?=(\\?))\2.)*?\1/g, '<span class="string">$&</span>');
+}
+
+function highlightAPIKeys(content) {
+  // Highlighting potential API keys (example: 'API_KEY', 'Bearer TOKEN')
+  const apiKeyRegex = /\b(API_KEY|Bearer\s+[A-Za-z0-9\-_]+)/g;
+  return content.replace(apiKeyRegex, '<span class="api-key">$&</span>');
+}
+
+
+
+// Function to escape HTML characters
+function escapeHtml(html) {
+  return html.replace(/&/g, '&amp;')
+             .replace(/</g, '&lt;')
+             .replace(/>/g, '&gt;')
+             .replace(/"/g, '&quot;')
+             .replace(/'/g, '&#039;');
 }
