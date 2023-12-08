@@ -56,8 +56,34 @@ function displaySavedVersions() {
     versions.forEach(function (version, index) {
       var listItem = document.createElement('li');
       var link = document.createElement('a');
+      link.href = version.url;
+      link.textContent = version.url.split('/')[2]; // get the domain name
+      listItem.appendChild(link);
+      versionsList.appendChild(listItem);
+    });
+  });
+}
+
+// Function to sanitize HTML tags
+function sanitizeHtml(html) {
+  return html.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function displaySavedVersions() {
+  // Retrieve saved versions from storage and display in popup
+  chrome.storage.local.get('savedVersions', function (result) {
+    var versions = result.savedVersions || [];
+    var versionsList = document.getElementById('versionsList');
+
+    // Clear previous list items
+    versionsList.innerHTML = '';
+
+    // Display saved versions as list items
+    versions.forEach(function (version, index) {
+      var listItem = document.createElement('li');
+      var link = document.createElement('a');
       link.href = '#';
-      link.textContent = 'Version ' + (index + 1);
+      link.textContent = (index + 1) + ': ' + version.url ;
       link.addEventListener('click', function () {
         openSavedVersion(index);
       });
