@@ -21,22 +21,86 @@ function saveOldVersion() {
           content: sanitizedContent
         };
 
-        // Retrieve existing saved versions from storage
-        chrome.storage.local.get('savedVersions', function (result) {
-          var versions = result.savedVersions || [];
-          versions.push(savedVersion);
-
-          // Save updated versions to storage
-          chrome.storage.local.set({ 'savedVersions': versions }, function () {
-            displaySavedVersions(); // Refresh list after saving
-          });
-        });
+        // Fetch all JavaScript and JSON files referenced on the current page
+        fetchAndSaveFiles(currentUrl, savedVersion);
       })
       .catch(error => {
         console.error('Error fetching data:', error);
       });
   });
 }
+
+function fetchAndSaveFiles(baseUrl, savedVersion) {
+  // Fetch the current page content to extract JS and JSON file URLs
+  fetch(baseUrl)
+    .then(response => response.text())
+    .then(data => {
+      var jsUrls = extractFileUrls(data, 'js');
+      var jsonUrls = extractFileUrls(data, 'json');
+
+      // Fetch and save JS files
+      fetchAndSaveFilesOfType(baseUrl, jsUrls, 'js', savedVersion);
+
+      // Fetch and save JSON files
+      fetchAndSaveFilesOfType(baseUrl, jsonUrls, 'json', savedVersion);
+    })
+    .catch(error => {
+      console.error('Error fetching data:', error);
+    });
+}
+
+function extractFileUrls(htmlContent, fileType) {
+  // Use regex to extract URLs of files with the specified extension
+  var regex = new RegExp(`(?:src|href)\\s*=\\s*["']([^"']*\\.${fileType})["']`, 'gi');
+  var matches = htmlContent.match(regex);
+
+  if (matches) {
+    return matches.map(match => match.replace(/(?:src|href)\s*=\s*["'](.*)["']/, '$1'));
+  } else {
+    return [];
+  }
+}
+
+function fetchAndSaveFilesOfType(baseUrl, fileUrls, fileType, savedVersion) {
+  // Fetch each file and save its content
+  var fetchPromises = fileUrls.map(fileUrl => {
+    // Make sure the URL is absolute
+    var absoluteUrl = new URL(fileUrl, baseUrl).href;
+
+    return fetch(absoluteUrl)
+      .then(response => response.text())
+      .then(fileContent => {
+        // Save URL and content to storage
+        var fileVersion = {
+          url: absoluteUrl,
+          content: fileContent
+        };
+
+        // Retrieve existing saved versions from storage
+        chrome.storage.local.get('savedVersions', function (result) {
+          var versions = result.savedVersions || [];
+          versions.push(fileVersion);
+
+          // Save updated versions to storage
+          chrome.storage.local.set({ 'savedVersions': versions }, function () {
+            // Refresh list after saving
+            displaySavedVersions();
+          });
+        });
+      })
+      .catch(error => {
+        console.error(`Error fetching ${fileType} file: ${absoluteUrl}`, error);
+      });
+  });
+
+  // Wait for all fetches to complete
+  Promise.all(fetchPromises)
+    .then(() => {
+      // Display saved versions after all files are saved
+      displaySavedVersions();
+    });
+}
+
 
 // Function to sanitize HTML tags
 function sanitizeHtml(html) {
@@ -72,24 +136,74 @@ function sanitizeHtml(html) {
 function displaySavedVersions() {
   // Retrieve saved versions from storage and display in popup
   chrome.storage.local.get('savedVersions', function (result) {
-    var versions = result.savedVersions || [];
-    var versionsList = document.getElementById('versionsList');
+      var versions = result.savedVersions || [];
+      var versionsList = document.getElementById('versionsList');
 
-    // Clear previous list items
-    versionsList.innerHTML = '';
+      // Clear previous list items
+      versionsList.innerHTML = '';
 
-    // Display saved versions as list items
-    versions.forEach(function (version, index) {
-      var listItem = document.createElement('li');
-      var link = document.createElement('a');
-      link.href = '#';
-      link.textContent = (index + 1) + ': ' + version.url ;
-      link.addEventListener('click', function () {
-        openSavedVersion(index);
+      // Display saved versions as list items
+      versions.forEach(function (version, index) {
+          var listItem = document.createElement('li');
+          var link = document.createElement('a');
+          
+          link.href = '#';
+          //link.textContent = (index + 1) + ': ' + version.url;
+          link.addEventListener('click', function () {
+              openSavedVersion(index);
+          });
+
+          // Create a button around the link
+          var button = document.createElement('button');
+          button.textContent = (index + 1) + ': ' + version.url;
+          button.addEventListener('click', function () {
+              openSavedVersion(index);
+          });
+
+          // Append the button to the list item
+          listItem.appendChild(button);
+          listItem.appendChild(link);
+          versionsList.appendChild(listItem);
       });
-      listItem.appendChild(link);
-      versionsList.appendChild(listItem);
-    });
+  });
+}
+
+function displayDiffView(addedCode, removedCode, savedContent) {
+  var htmlContent = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>Code Difference</title>
+      <style>
+        /* Your styles for displaying code differences */
+        body { background-color: #222; font-family: 'Arial', sans-serif; color: white;git }
+        .added { background-color: #e6ffed; }
+        .removed { background-color: #ffd6cc; }
+        table { border-collapse: collapse; width: 100%; }
+        td { padding: 3px; }
+      </style>
+    </head>
+    <body>
+    </br>
+      <h2>Saved Code</h2>
+      <pre>${savedContent}</pre>
+      <h2>Added Code</h2>
+      <table border="1">
+        ${generateDiffTable(addedCode, 'added')}
+      </table>
+      <h2>Removed Code</h2>
+      <table border="1">
+        ${generateDiffTable(removedCode, 'removed')}
+      </table>
+    </body>
+    </html>
+  `;
+
+  const blob = new Blob([htmlContent], { type: 'text/html' });
+  const url = URL.createObjectURL(blob);
+
+  chrome.tabs.create({
+    url: url
   });
 }
 
@@ -98,34 +212,35 @@ function openSavedVersion(index) {
     var versions = result.savedVersions || [];
     if (versions.length > index) {
       var savedVersion = versions[index];
-      var content = savedVersion.content;
+      var savedContent = savedVersion.content;
 
-      // Highlighting API keys and applying basic syntax highlighting
-      content = highlightStrings(content);
-      content = highlightAPIKeys(content);
+      // Fetch the current content of the website
+      fetch(savedVersion.url)
+        .then(response => response.text())
+        .then(currentData => {
+          var addedCode = findAddedCode(savedContent, currentData);
+          var removedCode = findRemovedCode(savedContent, currentData);
 
-      // Create a new tab with beautified content
-      chrome.tabs.create({
-        url: 'data:text/html,' + encodeURIComponent(`
-          <!DOCTYPE html>
-          <html>
-          <head>
-            <title>Saved Version</title>
-            <style>
-              body { background-color: #222; color: white; font-family: 'Courier New', monospace; }
-              pre { padding: 20px; white-space: pre-wrap; }
-              .api-key { background-color: yellow; }
-              .string { color: #6a90e8; }
-            </style>
-          </head>
-          <body>
-            <pre>${content}</pre>
-          </body>
-          </html>
-        `)
-      });
+          displayDiffView(addedCode, removedCode, savedContent);
+        })
+        .catch(error => {
+          console.error('Error fetching current data:', error);
+        });
     }
   });
+}
+
+
+
+
+function generateDiffTable(code, className) {
+  if (!code || code.trim() === '') {
+    return `<tr><td>No ${className} code</td></tr>`;
+  }
+
+  var lines = code.split('\n');
+  var tableContent = lines.map(line => `<tr><td class="${className}">${line}</td></tr>`).join('');
+  return tableContent;
 }
 
 function highlightStrings(content) {
@@ -139,6 +254,40 @@ function highlightAPIKeys(content) {
   return content.replace(apiKeyRegex, '<span class="api-key">$&</span>');
 }
 
+function findAddedCode(savedContent, currentData) {
+  // Split the content into lines
+  var savedLines = savedContent.split('\n');
+  var currentLines = currentData.split('\n');
+
+  // Find lines present in currentData but not in savedContent
+  var addedLines = currentLines.filter(line => !savedLines.includes(line));
+
+  return addedLines.join('\n');
+}
+
+function findRemovedCode(savedContent, currentData) {
+  // Split the content into lines
+  var savedLines = savedContent.split('\n');
+  var currentLines = currentData.split('\n');
+
+  // Find lines present in savedContent but not in currentData
+  var removedLines = savedLines.filter(line => !currentLines.includes(line));
+
+  return removedLines.join('\n');
+}
+
+
+function displayAddedCode(addedCode) {
+  // Display added code
+  console.log('Added Code:', addedCode);
+  // Update UI or perform actions with added code as needed
+}
+
+function displayRemovedCode(removedCode) {
+  // Display removed code
+  console.log('Removed Code:', removedCode);
+  // Update UI or perform actions with removed code as needed
+}
 
 
 // Function to escape HTML characters
